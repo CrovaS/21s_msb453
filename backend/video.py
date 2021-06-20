@@ -2,29 +2,32 @@
 ### module for video processing
 ###
 
+import picamera
 import time
 from imutils.perspective import four_point_transform
 from imutils import contours
 import imutils
 import cv2
 import numpy as np
+import os
 
 # define the dictionary of digit segments so we can identify
 # each digit.
 DIGITS_LOOKUP = {
 	(1, 1, 1, 0, 1, 1, 1): 0,
 	(0, 0, 1, 0, 0, 1, 0): 1,
-	(1, 0, 1, 1, 1, 1, 0): 2,
+	(1, 0, 1, 1, 1, 0, 1): 2,
 	(1, 0, 1, 1, 0, 1, 1): 3,
 	(0, 1, 1, 1, 0, 1, 0): 4,
 	(1, 1, 0, 1, 0, 1, 1): 5,
 	(1, 1, 0, 1, 1, 1, 1): 6,
+    (1, 0, 0, 1, 1, 1, 1): 6,
 	(1, 1, 1, 0, 0, 1, 0): 7,
 	(1, 1, 1, 1, 1, 1, 1): 8,
     (1, 1, 1, 1, 0, 1, 0): 9
 }
 
-FP_MARGIN = 5
+FP_MARGIN = 15
 
 
 # For debugging.
@@ -32,15 +35,40 @@ def showimg(img):
     cv2.imshow('img', img)
     cv2.waitKey(0)
 
+def get_rectangle(pts):
+    result = [pts[0], pts[0], pts[0], pts[0]]
+    for p in pts:
+        i = p[0] + p[1]
+        j = p[0] - p[1]
+        if (i < sum(result[0])):
+            result[0] = p
+        if (i > sum(result[2])):
+            result[2] = p
+        if (j < result[1][0] - result[1][1]):
+            result[1] = p
+        if (j > result[3][0] - result[3][1]):
+            result[3] = p
+    for i in range(len(result)):
+        result[i] = list(map(int, result[i]))
+    return result
+
+
+
+errcnt = 0
 
 # Read data from camara in Raspberry Pi, extract remaining
 # time data by seven segment recognition. Return remaining
 # time is success, -1 otherwise.
 def get_remaining_time():
+    global errcnt
     try:
+        # Capture with Raspberry Pi camera
+        with picamera.PiCamera() as camera:
+            camera.resolution = (1024, 768)
+            camera.capture('capture.jpg')
         # Open, Read an image.
-        # TODO: Change this to video from Raspberry Pi.
-        image = cv2.imread("example.jpg")
+        image = cv2.imread('capture.jpg')
+        image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
         image = imutils.resize(image, height=500)
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
@@ -61,25 +89,24 @@ def get_remaining_time():
 
         for c in cnts:
             (x, y, w, h) = cv2.boundingRect(c)
-            if (w > 30 and w < 50):
+            if (h > 50 and h < 80):
                 digitCnts.append(c)
 
         digitCnts = contours.sort_contours(digitCnts, method='left-to-right')[0]
         for c in digitCnts:
             (x, y, w, h) = cv2.boundingRect(c)
         # Create rectangle containing LCD, for four point transformation.
-        rect = [list(map(int, cv2.boxPoints(cv2.minAreaRect(digitCnts[0]))[0])),
-                list(map(int, cv2.boxPoints(cv2.minAreaRect(digitCnts[0]))[1])),
-                list(map(int, cv2.boxPoints(cv2.minAreaRect(digitCnts[3]))[2])),
-                list(map(int, cv2.boxPoints(cv2.minAreaRect(digitCnts[3]))[3]))]
+        rect = get_rectangle(list(cv2.boxPoints(cv2.minAreaRect(digitCnts[0]))) +
+                             list(cv2.boxPoints(cv2.minAreaRect(digitCnts[3]))))
+
         rect[0][0] -= FP_MARGIN
-        rect[0][1] += FP_MARGIN
+        rect[0][1] -= FP_MARGIN
         rect[1][0] -= FP_MARGIN
-        rect[1][1] -= FP_MARGIN
+        rect[1][1] += FP_MARGIN
         rect[2][0] += FP_MARGIN
-        rect[2][1] -= FP_MARGIN
+        rect[2][1] += FP_MARGIN
         rect[3][0] += FP_MARGIN
-        rect[3][1] += FP_MARGIN
+        rect[3][1] -= FP_MARGIN
 
         # Perform four point transform with rectangle created above.
         image = four_point_transform(image, np.array(rect, dtype=int))
@@ -150,10 +177,11 @@ def get_remaining_time():
             digits.append(digit)
         return digits[0] * 1000 + digits[1] * 100 + digits[2] * 10 + digits[3]
     except Exception:
+        os.rename("capture.jpg", "{0}.jpg".format(errcnt))
+        errcnt += 1
         return -1
 
 
 if __name__ == '__main__':
-    for i in range(10):
+    while True:
         print(get_remaining_time())
-        time.sleep(5)
