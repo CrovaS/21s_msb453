@@ -19,9 +19,9 @@ DIGITS_LOOKUP = {
 	(0, 1, 1, 1, 0, 1, 0): 4,
 	(1, 1, 0, 1, 0, 1, 1): 5,
 	(1, 1, 0, 1, 1, 1, 1): 6,
-	(1, 0, 1, 0, 0, 1, 0): 7,
+	(1, 1, 1, 0, 0, 1, 0): 7,
 	(1, 1, 1, 1, 1, 1, 1): 8,
-    (1, 1, 1, 1, 0, 1, 1): 9
+    (1, 1, 1, 1, 0, 1, 0): 9
 }
 
 FP_MARGIN = 5
@@ -40,9 +40,17 @@ def get_remaining_time():
     try:
         # Open, Read an image.
         # TODO: Change this to video from Raspberry Pi.
-        image = cv2.imread("example2.png")
+        image = cv2.imread("example.jpg")
         image = imutils.resize(image, height=500)
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        for i in range(len(gray)):
+            for j in range(len(gray[i])):
+                if (gray[i][j] < 250):
+                    gray[i][j] = 255
+                else:
+                    gray[i][j] = 0
+
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edged = cv2.Canny(blurred, 50, 200, 255)
 
@@ -50,16 +58,20 @@ def get_remaining_time():
                                 cv2.CHAIN_APPROX_SIMPLE)
         cnts = imutils.grab_contours(cnts)
         digitCnts = []
+
         for c in cnts:
             (x, y, w, h) = cv2.boundingRect(c)
-            if (w >= 15):
+            if (w > 30 and w < 50):
                 digitCnts.append(c)
 
+        digitCnts = contours.sort_contours(digitCnts, method='left-to-right')[0]
+        for c in digitCnts:
+            (x, y, w, h) = cv2.boundingRect(c)
         # Create rectangle containing LCD, for four point transformation.
-        rect = [list(map(int, cv2.boxPoints(cv2.minAreaRect(cnts[3]))[0])),
-                list(map(int, cv2.boxPoints(cv2.minAreaRect(cnts[3]))[1])),
-                list(map(int, cv2.boxPoints(cv2.minAreaRect(cnts[0]))[2])),
-                list(map(int, cv2.boxPoints(cv2.minAreaRect(cnts[0]))[3]))]
+        rect = [list(map(int, cv2.boxPoints(cv2.minAreaRect(digitCnts[0]))[0])),
+                list(map(int, cv2.boxPoints(cv2.minAreaRect(digitCnts[0]))[1])),
+                list(map(int, cv2.boxPoints(cv2.minAreaRect(digitCnts[3]))[2])),
+                list(map(int, cv2.boxPoints(cv2.minAreaRect(digitCnts[3]))[3]))]
         rect[0][0] -= FP_MARGIN
         rect[0][1] += FP_MARGIN
         rect[1][0] -= FP_MARGIN
@@ -72,6 +84,13 @@ def get_remaining_time():
         # Perform four point transform with rectangle created above.
         image = four_point_transform(image, np.array(rect, dtype=int))
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        for i in range(len(gray)):
+            for j in range(len(gray[i])):
+                if (gray[i][j] < 250):
+                    gray[i][j] = 255
+                else:
+                    gray[i][j] = 0
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edged = cv2.Canny(blurred, 50, 200, 255)
 
@@ -81,7 +100,7 @@ def get_remaining_time():
         digitCnts = []
         for c in cnts:
             (x, y, w, h) = cv2.boundingRect(c)
-            if (w >= 15):
+            if (h >= 60):
                 digitCnts.append(c)
 
         digitCnts = contours.sort_contours(digitCnts, method='left-to-right')[0]
@@ -94,10 +113,10 @@ def get_remaining_time():
         for c in digitCnts:
             (x, y, w, h) = cv2.boundingRect(c)
             # if width is small enough, we recognize it as `1`.
-            if (w < 45):
+            if (w < 30):
                 digits.append(1)
                 continue
-            roi = thresh[y:y+h, x:x+w]
+            roi = gray[y:y+h, x:x+w]
             # compute the width and height of each of the 7 segments
             # we are going to examine
             (roiH, roiW) = roi.shape
