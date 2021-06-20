@@ -1,0 +1,4 @@
+ee488g-20184621:asia-east1:hw0
+https://ee488g-20184621.appspot.com
+
+./cloud_sql_proxy -instances="ee488g-20184621:asia-east1:hw0"=tcp:3306
