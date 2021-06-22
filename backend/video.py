@@ -4,36 +4,44 @@
 
 import picamera
 import time
-from imutils.perspective import four_point_transform
-from imutils import contours
+import os
 import imutils
 import cv2
 import numpy as np
-import os
+from imutils.perspective import four_point_transform
+from imutils import contours
 
 # define the dictionary of digit segments so we can identify
 # each digit.
 DIGITS_LOOKUP = {
-	(1, 1, 1, 0, 1, 1, 1): 0,
-	(0, 0, 1, 0, 0, 1, 0): 1,
-	(1, 0, 1, 1, 1, 0, 1): 2,
-	(1, 0, 1, 1, 0, 1, 1): 3,
-	(0, 1, 1, 1, 0, 1, 0): 4,
-	(1, 1, 0, 1, 0, 1, 1): 5,
-	(1, 1, 0, 1, 1, 1, 1): 6,
+    (1, 1, 1, 0, 1, 1, 1): 0,
+    (0, 0, 1, 0, 0, 1, 0): 1,
+    (1, 0, 1, 1, 1, 0, 1): 2,
+    (1, 0, 1, 1, 0, 1, 1): 3,
+    (0, 1, 1, 1, 0, 1, 0): 4,
+    (1, 1, 0, 1, 0, 1, 1): 5,
+    (1, 1, 0, 1, 1, 1, 1): 6,
     (1, 0, 0, 1, 1, 1, 1): 6,
-	(1, 1, 1, 0, 0, 1, 0): 7,
-	(1, 1, 1, 1, 1, 1, 1): 8,
+    (1, 1, 1, 0, 0, 1, 0): 7,
+    (1, 1, 1, 1, 1, 1, 1): 8,
     (1, 1, 1, 1, 0, 1, 0): 9
 }
 
 FP_MARGIN = 15
+GRAY_THRESH = 245
+errcnt = 0
+
+camera = picamera.PiCamera()
+camera.rotation = 270
+camera.resolution = (1024, 768)
+camera.start_preview(fullscreen=False, window=(0, 50, 600, 800))
 
 
 # For debugging.
 def showimg(img):
     cv2.imshow('img', img)
     cv2.waitKey(0)
+
 
 def get_rectangle(pts):
     result = [pts[0], pts[0], pts[0], pts[0]]
@@ -53,28 +61,26 @@ def get_rectangle(pts):
     return result
 
 
-
-errcnt = 0
-
 # Read data from camara in Raspberry Pi, extract remaining
 # time data by seven segment recognition. Return remaining
 # time is success, -1 otherwise.
-def get_remaining_time():
+def get_remaining_time(debug = False):
     global errcnt
     try:
-        # Capture with Raspberry Pi camera
-        with picamera.PiCamera() as camera:
-            camera.resolution = (1024, 768)
-            camera.capture('capture.jpg')
+        camera.stop_preview()
+        camera.capture('capture.jpg')
+        camera.start_preview(fullscreen=False, window=(0, 50, 600, 800))
+
         # Open, Read an image.
         image = cv2.imread('capture.jpg')
-        image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
         image = imutils.resize(image, height=500)
+        if debug:
+            showimg(image)
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
         for i in range(len(gray)):
             for j in range(len(gray[i])):
-                if (gray[i][j] < 250):
+                if (gray[i][j] < GRAY_THRESH):
                     gray[i][j] = 255
                 else:
                     gray[i][j] = 0
@@ -89,12 +95,11 @@ def get_remaining_time():
 
         for c in cnts:
             (x, y, w, h) = cv2.boundingRect(c)
-            if (h > 50 and h < 80):
+            if (h > 110 and h < 140):
                 digitCnts.append(c)
 
         digitCnts = contours.sort_contours(digitCnts, method='left-to-right')[0]
-        for c in digitCnts:
-            (x, y, w, h) = cv2.boundingRect(c)
+
         # Create rectangle containing LCD, for four point transformation.
         rect = get_rectangle(list(cv2.boxPoints(cv2.minAreaRect(digitCnts[0]))) +
                              list(cv2.boxPoints(cv2.minAreaRect(digitCnts[3]))))
@@ -111,15 +116,19 @@ def get_remaining_time():
         # Perform four point transform with rectangle created above.
         image = four_point_transform(image, np.array(rect, dtype=int))
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        if debug:
+            showimg(image)
 
         for i in range(len(gray)):
             for j in range(len(gray[i])):
-                if (gray[i][j] < 250):
+                if (gray[i][j] < GRAY_THRESH):
                     gray[i][j] = 255
                 else:
                     gray[i][j] = 0
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         edged = cv2.Canny(blurred, 50, 200, 255)
+        if debug:
+            showimg(edged)
 
         cnts = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL,
                                 cv2.CHAIN_APPROX_SIMPLE)
@@ -127,23 +136,21 @@ def get_remaining_time():
         digitCnts = []
         for c in cnts:
             (x, y, w, h) = cv2.boundingRect(c)
-            if (h >= 60):
+            if (h > 110 and h < 140):
                 digitCnts.append(c)
 
         digitCnts = contours.sort_contours(digitCnts, method='left-to-right')[0]
         digits = []
-        thresh = cv2.threshold(gray, 0, 255,
-                               cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (1, 5))
-        thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
 
         for c in digitCnts:
             (x, y, w, h) = cv2.boundingRect(c)
             # if width is small enough, we recognize it as `1`.
-            if (w < 30):
+            if (w < 60):
                 digits.append(1)
                 continue
             roi = gray[y:y+h, x:x+w]
+            if debug:
+                showimg(roi)
             # compute the width and height of each of the 7 segments
             # we are going to examine
             (roiH, roiW) = roi.shape
@@ -184,4 +191,4 @@ def get_remaining_time():
 
 if __name__ == '__main__':
     while True:
-        print(get_remaining_time())
+        print('Remaining time: {0}'.format(get_remaining_time(False)))

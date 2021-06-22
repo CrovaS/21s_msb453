@@ -24,6 +24,7 @@ def main(hostname, username, password):
             remaining_time = video.get_remaining_time()
             if remaining_time >= 0:
                 db_module.db_store(db, cursor, MACHINE_ID, remaining_time)
+                print("success: remaining_time {0}".format(remaining_time))
             else:
                 print("failed to get remaining time. Sleep...")
             time.sleep(TIME_INTERVAL)

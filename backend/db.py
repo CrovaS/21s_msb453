@@ -28,14 +28,13 @@ def db_connect(db_user, db_password, db_host, db_database):
 
 # Send Query to DB server with MACHINE_ID and REMAINING_TIME.
 def db_store(db, cursor, machine_id, remaining_time):
-    remaining_hour = remaining_time // 60
-    remaining_minute = remaining_time % 60
+    remaining_hour = remaining_time // 100
+    remaining_minute = remaining_time % 100
     sql = "INSERT INTO realtime(washingID, realTimeHour, realTimeMinute) \
            VALUES ({0}, {1}, {2});".format(
            machine_id, remaining_hour, remaining_minute)
     cursor.execute(sql)
     result = cursor.fetchall()
-    print(result)
     db.commit()
 
 
